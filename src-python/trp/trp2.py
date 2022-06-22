@@ -1,7 +1,7 @@
 from __future__ import annotations
 from functools import lru_cache
 import typing
-from typing import List, Set, Dict, Optional, Iterator
+from typing import List, Set, Dict, Optional, Iterator, Generator
 from dataclasses import dataclass, field
 import marshmallow as m
 from marshmallow import post_load
@@ -598,11 +598,14 @@ class TDocument():
                 return b
         raise ValueError(f"no block for id: {id}")
 
+    #TODO: does it also work when an block does not have relationship, e.g a WORD block?
     def __relationships_recursive(self, block: TBlock) -> Iterator[TBlock]:
         import itertools
+        # blk_id_map = self.block_id_map()
         if block and block.relationships:
             all_relations = list(itertools.chain(*[r.ids for r in block.relationships if r and r.ids]))
             all_block = [self.get_block_by_id(id) for id in all_relations if id]
+            # all_block = [blk_id_map[id] for id in all_relations if id]
             for b in all_block:
                 if b:
                     yield b
@@ -613,11 +616,62 @@ class TDocument():
     def relationships_recursive(self, block: TBlock) -> Set[TBlock]:
         return set(self.__relationships_recursive(block=block))
 
+    def relationships(self, block: TBlock) -> List[TBlock]:
+        '''
+        Return the child blocks in the relationships of block.
+        '''
+        block_list: list[TBlock] = list()
+        if block.relationships is not None:  #the parent block might not have relationship (e.g. empty page)
+            for rel in block.relationships:
+                for rel_id in rel.ids:
+                    child_block = self.find_block_by_id(rel_id)
+                    if child_block:
+                        block_list.append(child_block)
+        return block_list
+
     @property
     def pages(self) -> List[TBlock]:
         page_blocks = self.block_map(TextractBlockTypes.PAGE).values()
         page_blocks = sorted(page_blocks, key=lambda item: item.page)
         return page_blocks
+
+    @property
+    def lines(self) -> List[TBlock]:
+        '''Return a list of all the blocks of type LINE'''
+        return self.block_map(TextractBlockTypes.LINE).values()
+
+    @property
+    def words(self) -> List[TBlock]:
+        '''Return a list of all TBlock of type WORD'''
+        return self.block_map(TextractBlockTypes.WORD).values()
+
+    def iter_blocks(self) -> Generator[str, TBlock]:
+        for id,idx in self.block_id_map():
+            yield id, self.blocks[idx]
+
+    def iter_pages(self) -> Generator[str, TBlock]:
+        for id,idx in self.block_id_map(TextractBlockTypes.PAGE):
+            yield id, self.blocks[idx]
+
+    def iter_lines(self) -> Generator[str, TBlock]:
+        for id,idx in self.block_id_map(TextractBlockTypes.LINE):
+            yield id, self.blocks[idx]
+
+    def iter_words(self) -> Generator[str, TBlock]:
+        for id,idx in self.block_id_map(TextractBlockTypes.WORD):
+            yield id, self.blocks[idx]
+
+    def iter_relationships(self, block: TBlock) -> Generator[str, TBlock]:
+        '''
+        Iterate the relationships of block.
+        '''
+        block_list: list[TBlock] = list()
+        if block.relationships is not None:  #the parent block might not have relationship (e.g. empty page)
+            for rel in block.relationships:
+                for rel_id in rel.ids:
+                    child_block = self.find_block_by_id(rel_id)
+                    if child_block:
+                        yield child_block.id, child_block
 
     @staticmethod
     def filter_blocks_by_type(block_list: List[TBlock],
